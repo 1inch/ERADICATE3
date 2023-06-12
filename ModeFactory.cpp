@@ -18,6 +18,13 @@ mode ModeFactory::zeros() {
 	return range(0, 0);
 }
 
+mode ModeFactory::all(int scoreAll) {
+	mode r;
+	r.function = ModeFunction::All;
+	r.data1[0] = scoreAll;
+	return r;
+}
+
 mode ModeFactory::matching(const std::string strHex) {
 	mode r;
 	r.function = ModeFunction::Matching;

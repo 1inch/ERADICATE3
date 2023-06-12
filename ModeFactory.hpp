@@ -24,6 +24,7 @@ class ModeFactory {
 		static mode letters();
 		static mode numbers();
 		static mode doubles();
+		static mode all(int scoreAll);
 };
 
 #endif /* HPP_MODEFACTORY */
