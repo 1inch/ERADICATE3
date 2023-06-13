@@ -165,23 +165,24 @@ void Dispatcher::enqueueKernelDevice(Device & d, cl_kernel & clKernel, size_t wo
 
 void Dispatcher::deviceDispatch(Device & d) {
 	// Check result
-	for (auto i = ERADICATE2_MAX_SCORE; i > m_clScoreMax; --i) {
+	for (auto i = ERADICATE2_MAX_SCORE; i >= m_clScoreMax; --i) {
 		result & r = d.m_memResult[i];
 
 		if (r.found > 0 && i >= d.m_clScoreMax) {
-			d.m_clScoreMax = i;
+			// d.m_clScoreMax = i;
 			CLMemory<cl_uchar>::setKernelArg(d.m_kernelIterate, 2, d.m_clScoreMax);
 
 			std::lock_guard<std::mutex> lock(m_mutex);
 			if (i >= m_clScoreMax) {
-				m_clScoreMax = i;
+				// m_clScoreMax = i;
 
 				// TODO: Add quit condition
 
 				printResult(r, i, timeStart);
+				r.found = 0;
 			}
 
-			break;
+			// break;
 		}
 	}
 
