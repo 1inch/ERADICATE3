@@ -9,6 +9,7 @@
 #include <random>
 #include <map>
 #include <set>
+#include <memory>
 
 #if defined(__APPLE__) || defined(__MACOSX)
 #include <OpenCL/cl.h>
@@ -26,380 +27,375 @@
 
 std::string readFile(const char * const szFilename)
 {
-	std::ifstream in(szFilename, std::ios::in | std::ios::binary);
-	std::ostringstream contents;
-	contents << in.rdbuf();
-	return contents.str();
+    std::ifstream in(szFilename, std::ios::in | std::ios::binary);
+    std::ostringstream contents;
+    contents << in.rdbuf();
+    return contents.str();
 }
 
 std::vector<cl_device_id> getAllDevices(cl_device_type deviceType = CL_DEVICE_TYPE_GPU)
 {
-	std::vector<cl_device_id> vDevices;
+    std::vector<cl_device_id> vDevices;
 
-	cl_uint platformIdCount = 0;
-	clGetPlatformIDs (0, NULL, &platformIdCount);
+    cl_uint platformIdCount = 0;
+    clGetPlatformIDs (0, NULL, &platformIdCount);
 
-	std::vector<cl_platform_id> platformIds (platformIdCount);
-	clGetPlatformIDs (platformIdCount, platformIds.data (), NULL);
+    std::vector<cl_platform_id> platformIds (platformIdCount);
+    clGetPlatformIDs (platformIdCount, platformIds.data (), NULL);
 
-	for( auto it = platformIds.cbegin(); it != platformIds.cend(); ++it ) {
-		cl_uint countDevice;
-		clGetDeviceIDs(*it, deviceType, 0, NULL, &countDevice);
+    for( auto it = platformIds.cbegin(); it != platformIds.cend(); ++it ) {
+        cl_uint countDevice;
+        clGetDeviceIDs(*it, deviceType, 0, NULL, &countDevice);
 
-		std::vector<cl_device_id> deviceIds(countDevice);
-		clGetDeviceIDs(*it, deviceType, countDevice, deviceIds.data(), &countDevice);
+        std::vector<cl_device_id> deviceIds(countDevice);
+        clGetDeviceIDs(*it, deviceType, countDevice, deviceIds.data(), &countDevice);
 
-		std::copy( deviceIds.begin(), deviceIds.end(), std::back_inserter(vDevices) );
-	}
+        std::copy( deviceIds.begin(), deviceIds.end(), std::back_inserter(vDevices) );
+    }
 
-	return vDevices;
+    return vDevices;
 }
 
 template <typename T, typename U, typename V, typename W>
 T clGetWrapper(U function, V param, W param2) {
-	T t;
-	function(param, param2, sizeof(t), &t, NULL);
-	return t;
+    T t;
+    function(param, param2, sizeof(t), &t, NULL);
+    return t;
 }
 
 template <typename U, typename V, typename W>
 std::string clGetWrapperString(U function, V param, W param2) {
-	size_t len;
-	function(param, param2, 0, NULL, &len);
-	char * const szString = new char[len];
-	function(param, param2, len, szString, NULL);
-	std::string r(szString);
-	delete[] szString;
-	return r;
+    size_t len;
+    function(param, param2, 0, NULL, &len);
+    std::vector<char> szString(len);
+    function(param, param2, len, szString.data(), NULL);
+    return std::string(szString.begin(), szString.end());
 }
 
 template <typename T, typename U, typename V, typename W>
 std::vector<T> clGetWrapperVector(U function, V param, W param2) {
-	size_t len;
-	function(param, param2, 0, NULL, &len);
-	len /= sizeof(T);
-	std::vector<T> v;
-	if (len > 0) {
-		T * pArray = new T[len];
-		function(param, param2, len * sizeof(T), pArray, NULL);
-		for (size_t i = 0; i < len; ++i) {
-			v.push_back(pArray[i]);
-		}
-		delete[] pArray;
-	}
-	return v;
+    size_t len;
+    function(param, param2, 0, NULL, &len);
+    len /= sizeof(T);
+    std::vector<T> v;
+    if (len > 0) {
+        std::vector<T> pArray(len);
+        function(param, param2, len * sizeof(T), pArray.data(), NULL);
+        v.insert(v.end(), pArray.begin(), pArray.end());
+    }
+    return v;
 }
 
 std::vector<std::string> getBinaries(cl_program & clProgram) {
-	std::vector<std::string> vReturn;
-	auto vSizes = clGetWrapperVector<size_t>(clGetProgramInfo, clProgram, CL_PROGRAM_BINARY_SIZES);
-	if (!vSizes.empty()) {
-		unsigned char * * pBuffers = new unsigned char *[vSizes.size()];
-		for (size_t i = 0; i < vSizes.size(); ++i) {
-			pBuffers[i] = new unsigned char[vSizes[i]];
-		}
+    std::vector<std::string> vReturn;
+    auto vSizes = clGetWrapperVector<size_t>(clGetProgramInfo, clProgram, CL_PROGRAM_BINARY_SIZES);
+    if (!vSizes.empty()) {
+        std::vector<std::vector<unsigned char>> buffers(vSizes.size());
+        for (size_t i = 0; i < vSizes.size(); ++i) {
+            buffers[i].resize(vSizes[i]);
+        }
 
-		clGetProgramInfo(clProgram, CL_PROGRAM_BINARIES, vSizes.size() * sizeof(unsigned char *), pBuffers, NULL);
-		for (size_t i = 0; i < vSizes.size(); ++i) {
-			std::string strData(reinterpret_cast<char *>(pBuffers[i]), vSizes[i]);
-			vReturn.push_back(strData);
-			delete[] pBuffers[i];
-		}
+        std::vector<unsigned char*> pBuffers(vSizes.size());
+        for (size_t i = 0; i < vSizes.size(); ++i) {
+            pBuffers[i] = buffers[i].data();
+        }
 
-		delete[] pBuffers;
-	}
+        clGetProgramInfo(clProgram, CL_PROGRAM_BINARIES, vSizes.size() * sizeof(unsigned char *), pBuffers.data(), NULL);
+        for (size_t i = 0; i < vSizes.size(); ++i) {
+            std::string strData(reinterpret_cast<char *>(pBuffers[i]), vSizes[i]);
+            vReturn.push_back(strData);
+        }
+    }
 
-	return vReturn;
+    return vReturn;
 }
 
 template <typename T> bool printResult(const T & t, const cl_int & err) {
-	std::cout << ((t == NULL) ? lexical_cast::write(err) : "OK") << std::endl;
-	return t == NULL;
+    std::cout << ((t == NULL) ? lexical_cast::write(err) : "OK") << std::endl;
+    return t == NULL;
 }
 
 bool printResult(const cl_int err) {
-	std::cout << ((err != CL_SUCCESS) ? lexical_cast::write(err) : "OK") << std::endl;
-	return err != CL_SUCCESS;
+    std::cout << ((err != CL_SUCCESS) ? lexical_cast::write(err) : "OK") << std::endl;
+    return err != CL_SUCCESS;
 }
 
 std::string keccakDigest(const std::string data) {
-	char digest[32];
-	sha3(data.c_str(), data.size(), digest, 32);
-	return std::string(digest, 32);
+    char digest[32];
+    sha3(data.c_str(), data.size(), digest, 32);
+    return std::string(digest, 32);
 }
 
 void trim(std::string & s) {
-	const auto iLeft = s.find_first_not_of(" \t\r\n");
-	if (iLeft != std::string::npos) {
-		s.erase(0, iLeft);
-	}
+    const auto iLeft = s.find_first_not_of(" \t\r\n");
+    if (iLeft != std::string::npos) {
+        s.erase(0, iLeft);
+    }
 
-	const auto iRight = s.find_last_not_of(" \t\r\n");
-	if (iRight != std::string::npos) {
-		const auto count = s.length() - iRight - 1;
-		s.erase(iRight + 1, count);
-	}
+    const auto iRight = s.find_last_not_of(" \t\r\n");
+    if (iRight != std::string::npos) {
+        const auto count = s.length() - iRight - 1;
+        s.erase(iRight + 1, count);
+    }
 }
 
 std::string makePreprocessorInitHashExpression(const char* nft_address, const std::string & strAddressBinary, const char* bytecode_hash) {
-	std::random_device rd;
-	std::mt19937_64 eng(rd());
-	std::uniform_int_distribution<unsigned int> distr; // C++ requires integer type: "C2338	note : char, signed char, unsigned char, int8_t, and uint8_t are not allowed"
-	ethhash h = { {0} };
+    std::random_device rd;
+    std::mt19937_64 eng(rd());
+    std::uniform_int_distribution<unsigned int> distr; // C++ requires integer type: "C2338    note : char, signed char, unsigned char, int8_t, and uint8_t are not allowed"
+    ethhash h = { {0} };
 
-	h.b[0] = 0xff;
-	for (int i = 0; i < 20; ++i) {
-		h.b[i + 1] = nft_address[i];
-	}
+    h.b[0] = 0xff;
+    for (int i = 0; i < 20; ++i) {
+        h.b[i + 1] = nft_address[i];
+    }
 
-	for (int i = 0; i < 16; ++i) {
-		h.b[i + 21] = distr(eng);
-	}
-	for (int i = 16; i < 32; ++i) {
-		h.b[i + 21] = strAddressBinary[i - 12];
-	}
+    for (int i = 0; i < 16; ++i) {
+        h.b[i + 21] = distr(eng);
+    }
+    for (int i = 16; i < 32; ++i) {
+        h.b[i + 21] = strAddressBinary[i - 12];
+    }
 
-	for (int i = 0; i < 32; ++i) {
-		h.b[i + 53] = bytecode_hash[i];
-	}
+    for (int i = 0; i < 32; ++i) {
+        h.b[i + 53] = bytecode_hash[i];
+    }
 
-	h.b[85] ^= 0x01;
+    h.b[85] ^= 0x01;
 
-	std::ostringstream oss;
-	oss << std::hex;
-	for (int i = 0; i < 25; ++i) {
-		oss << "0x" << h.q[i];
-		if (i + 1 != 25) {
-			oss << ",";
-		}
-	}
+    std::ostringstream oss;
+    oss << std::hex;
+    for (int i = 0; i < 25; ++i) {
+        oss << "0x" << h.q[i];
+        if (i + 1 != 25) {
+            oss << ",";
+        }
+    }
 
-	return oss.str();
+    return oss.str();
 }
 
-const char* hexStringToConstChar(const std::string& hex) {
+std::vector<char> hexStringToVector(const std::string& hex) {
     size_t length = hex.length();
-    char* charArray = new char[length / 2 + 1];
+    std::vector<char> charArray(length / 2 + 1);
     for (size_t i = 0; i < length; i += 2) {
         std::string byteString = hex.substr(i, 2);
         char byte = (char) strtol(byteString.c_str(), nullptr, 16);
         charArray[i / 2] = byte;
     }
-    charArray[length / 2] = '\0';
+    charArray[length / 2] = '\0'; // добавляем символ конца строки
     return charArray;
 }
 
 int main(int argc, char * * argv) {
-	try {
-		ArgParser argp(argc, argv);
-		bool bHelp = false;
-		bool bModeBenchmark = false;
-		bool bModeZeroBytes = false;
-		bool bModeZeros = false;
-		bool bModeLetters = false;
-		bool bModeNumbers = false;
-		std::string strModeLeading;
-		std::string strModeMatching;
-		std::string strModeTrailing;
-		bool bModeLeadingRange = false;
-		bool bModeRange = false;
-		bool bModeMirror = false;
-		bool bModeDoubles = false;
-		int rangeMin = 0;
-		int rangeMax = 0;
-		std::vector<size_t> vDeviceSkipIndex;
-		size_t worksizeLocal = 128;
-		size_t worksizeMax = 0; // Will be automatically determined later if not overriden by user
-		size_t size = 16777216;
-		std::string strAddress;
-		std::string bytecode_hash = "21c35dbe1b344a2488cf3321d6ce542f8e9f305544ff09e4993a62319a497c1f";
-		std::string nft_address = "1ADD4E55ecEffd795B01d22203D280c93A2F1dc3";
-		std::string strInitCode;
-		std::string strInitCodeFile;
+    try {
+        ArgParser argp(argc, argv);
+        bool bHelp = false;
+        bool bModeBenchmark = false;
+        bool bModeZeroBytes = false;
+        bool bModeZeros = false;
+        bool bModeLetters = false;
+        bool bModeNumbers = false;
+        std::string strModeLeading;
+        std::string strModeMatching;
+        std::string strModeTrailing;
+        bool bModeLeadingRange = false;
+        bool bModeRange = false;
+        bool bModeMirror = false;
+        bool bModeDoubles = false;
+        int rangeMin = 0;
+        int rangeMax = 0;
+        std::vector<size_t> vDeviceSkipIndex;
+        size_t worksizeLocal = 128;
+        size_t worksizeMax = 0; // Will be automatically determined later if not overridden by user
+        size_t size = 16777216;
+        std::string strAddress;
+        std::string bytecode_hash = "21c35dbe1b344a2488cf3321d6ce542f8e9f305544ff09e4993a62319a497c1f";
+        std::string nft_address = "1ADD4E55ecEffd795B01d22203D280c93A2F1dc3";
+        std::string strInitCode;
+        std::string strInitCodeFile;
 
-		argp.addSwitch('h', "help", bHelp);
-		argp.addSwitch('0', "benchmark", bModeBenchmark);
-		argp.addSwitch('z', "zero-bytes", bModeZeroBytes);
-		argp.addSwitch('1', "zeros", bModeZeros);
-		argp.addSwitch('2', "letters", bModeLetters);
-		argp.addSwitch('3', "numbers", bModeNumbers);
-		argp.addSwitch('4', "leading", strModeLeading);
-		argp.addSwitch('5', "matching", strModeMatching);
-		argp.addSwitch('6', "leading-range", bModeLeadingRange);
-		argp.addSwitch('7', "range", bModeRange);
-		argp.addSwitch('8', "mirror", bModeMirror);
-		argp.addSwitch('9', "leading-doubles", bModeDoubles);
-		argp.addSwitch('t', "trailing", strModeTrailing);
-		argp.addSwitch('m', "min", rangeMin);
-		argp.addSwitch('M', "max", rangeMax);
-		argp.addMultiSwitch('s', "skip", vDeviceSkipIndex);
-		argp.addSwitch('w', "work", worksizeLocal);
-		argp.addSwitch('W', "work-max", worksizeMax);
-		argp.addSwitch('S', "size", size);
-		argp.addSwitch('A', "address", strAddress);
-		argp.addSwitch('B', "address", bytecode_hash); // create2 PROXY_CHILD_BYTECODE hash
-		argp.addSwitch('D', "address", nft_address); // create3 deployer address
-		argp.addSwitch('I', "init-code", strInitCode);
-		argp.addSwitch('i', "init-code-file", strInitCodeFile);
+        argp.addSwitch('h', "help", bHelp);
+        argp.addSwitch('0', "benchmark", bModeBenchmark);
+        argp.addSwitch('z', "zero-bytes", bModeZeroBytes);
+        argp.addSwitch('1', "zeros", bModeZeros);
+        argp.addSwitch('2', "letters", bModeLetters);
+        argp.addSwitch('3', "numbers", bModeNumbers);
+        argp.addSwitch('4', "leading", strModeLeading);
+        argp.addSwitch('5', "matching", strModeMatching);
+        argp.addSwitch('6', "leading-range", bModeLeadingRange);
+        argp.addSwitch('7', "range", bModeRange);
+        argp.addSwitch('8', "mirror", bModeMirror);
+        argp.addSwitch('9', "leading-doubles", bModeDoubles);
+        argp.addSwitch('t', "trailing", strModeTrailing);
+        argp.addSwitch('m', "min", rangeMin);
+        argp.addSwitch('M', "max", rangeMax);
+        argp.addMultiSwitch('s', "skip", vDeviceSkipIndex);
+        argp.addSwitch('w', "work", worksizeLocal);
+        argp.addSwitch('W', "work-max", worksizeMax);
+        argp.addSwitch('S', "size", size);
+        argp.addSwitch('A', "address", strAddress);
+        argp.addSwitch('B', "address", bytecode_hash); // create2 PROXY_CHILD_BYTECODE hash
+        argp.addSwitch('D', "address", nft_address); // create3 deployer address
+        argp.addSwitch('I', "init-code", strInitCode);
+        argp.addSwitch('i', "init-code-file", strInitCodeFile);
 
-		if (!argp.parse()) {
-			std::cout << "error: bad arguments, try again :<" << std::endl;
-			return 1;
-		}
+        if (!argp.parse()) {
+            std::cout << "error: bad arguments, try again :<" << std::endl;
+            return 1;
+        }
 
-		if (bHelp) {
-			std::cout << g_strHelp << std::endl;
-			return 0;
-		}
+        if (bHelp) {
+            std::cout << g_strHelp << std::endl;
+            return 0;
+        }
 
-		// Parse hexadecimal values and/or read init code from file
-		if (strInitCodeFile != "") {
-			std::ifstream ifs(strInitCodeFile);
-			if (!ifs.is_open()) {
-				std::cout << "error: failed to open input file for init code" << std::endl;
-				return 1;
-			}
-			strInitCode.assign(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>());
-		}
+        // Parse hexadecimal values and/or read init code from file
+        if (strInitCodeFile != "") {
+            std::ifstream ifs(strInitCodeFile);
+            if (!ifs.is_open()) {
+                std::cout << "error: failed to open input file for init code" << std::endl;
+                return 1;
+            }
+            strInitCode.assign(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>());
+        }
 
-		trim(strInitCode);
-		const std::string strAddressBinary = keccakDigest(parseHexadecimalBytes(strAddress)).substr(12);
-		const std::string strInitCodeDigest = keccakDigest(parseHexadecimalBytes(strInitCode));
-		const char* nft_address_chars = hexStringToConstChar(nft_address);
-		const char* bytecode_hash_chars = hexStringToConstChar(bytecode_hash);
-		const std::string strPreprocessorInitStructure = makePreprocessorInitHashExpression(nft_address_chars, strAddressBinary, bytecode_hash_chars);
+        trim(strInitCode);
+        const std::string strAddressBinary = keccakDigest(parseHexadecimalBytes(strAddress)).substr(12);
+        const std::string strInitCodeDigest = keccakDigest(parseHexadecimalBytes(strInitCode));
+        std::vector<char> nft_address_chars = hexStringToVector(nft_address);
+        std::vector<char> bytecode_hash_chars = hexStringToVector(bytecode_hash);
+        const std::string strPreprocessorInitStructure = makePreprocessorInitHashExpression(nft_address_chars.data(), strAddressBinary, bytecode_hash_chars.data());
 
-		mode mode = ModeFactory::benchmark();
-		if (bModeBenchmark) {
-			mode = ModeFactory::benchmark();
-		} else if (bModeZeroBytes) {
-			mode = ModeFactory::zerobytes();
-		}  else if (bModeZeros) {
-			mode = ModeFactory::zeros();
-		} else if (bModeLetters) {
-			mode = ModeFactory::letters();
-		} else if (bModeNumbers) {
-			mode = ModeFactory::numbers();
-		} else if (!strModeLeading.empty()) {
-			mode = ModeFactory::leading(strModeLeading.front());
-		} else if (!strModeTrailing.empty()) {
-			mode = ModeFactory::trailing(strModeTrailing);
-		} else if (!strModeMatching.empty()) {
-			mode = ModeFactory::matching(strModeMatching);
-		} else if (bModeLeadingRange) {
-			mode = ModeFactory::leadingRange(rangeMin, rangeMax);
-		} else if (bModeRange) {
-			mode = ModeFactory::range(rangeMin, rangeMax);
-		} else if(bModeMirror) {
-			mode = ModeFactory::mirror();
-		} else if (bModeDoubles) {
-			mode = ModeFactory::doubles();
-		} else {
-			std::cout << g_strHelp << std::endl;
-			return 0;
-		}
+        mode mode = ModeFactory::benchmark();
+        if (bModeBenchmark) {
+            mode = ModeFactory::benchmark();
+        } else if (bModeZeroBytes) {
+            mode = ModeFactory::zerobytes();
+        }  else if (bModeZeros) {
+            mode = ModeFactory::zeros();
+        } else if (bModeLetters) {
+            mode = ModeFactory::letters();
+        } else if (bModeNumbers) {
+            mode = ModeFactory::numbers();
+        } else if (!strModeLeading.empty()) {
+            mode = ModeFactory::leading(strModeLeading.front());
+        } else if (!strModeTrailing.empty()) {
+            mode = ModeFactory::trailing(strModeTrailing);
+        } else if (!strModeMatching.empty()) {
+            mode = ModeFactory::matching(strModeMatching);
+        } else if (bModeLeadingRange) {
+            mode = ModeFactory::leadingRange(rangeMin, rangeMax);
+        } else if (bModeRange) {
+            mode = ModeFactory::range(rangeMin, rangeMax);
+        } else if(bModeMirror) {
+            mode = ModeFactory::mirror();
+        } else if (bModeDoubles) {
+            mode = ModeFactory::doubles();
+        } else {
+            std::cout << g_strHelp << std::endl;
+            return 0;
+        }
 
-		std::vector<cl_device_id> vFoundDevices = getAllDevices();
-		std::vector<cl_device_id> vDevices;
-		std::map<cl_device_id, size_t> mDeviceIndex;
+        std::vector<cl_device_id> vFoundDevices = getAllDevices();
+        std::vector<cl_device_id> vDevices;
+        std::map<cl_device_id, size_t> mDeviceIndex;
 
-		std::vector<std::string> vDeviceBinary;
-		std::vector<size_t> vDeviceBinarySize;
-		cl_int errorCode;
+        std::vector<std::string> vDeviceBinary;
+        std::vector<size_t> vDeviceBinarySize;
+        cl_int errorCode;
 
-		std::cout << "Devices:" << std::endl;
-		for (size_t i = 0; i < vFoundDevices.size(); ++i) {
-			// Ignore devices in skip index
-			if (std::find(vDeviceSkipIndex.begin(), vDeviceSkipIndex.end(), i) != vDeviceSkipIndex.end()) {
-				continue;
-			}
+        std::cout << "Devices:" << std::endl;
+        for (size_t i = 0; i < vFoundDevices.size(); ++i) {
+            // Ignore devices in skip index
+            if (std::find(vDeviceSkipIndex.begin(), vDeviceSkipIndex.end(), i) != vDeviceSkipIndex.end()) {
+                continue;
+            }
 
-			cl_device_id & deviceId = vFoundDevices[i];
+            cl_device_id & deviceId = vFoundDevices[i];
 
-			const auto strName = clGetWrapperString(clGetDeviceInfo, deviceId, CL_DEVICE_NAME);
-			const auto computeUnits = clGetWrapper<cl_uint>(clGetDeviceInfo, deviceId, CL_DEVICE_MAX_COMPUTE_UNITS);
-			const auto globalMemSize = clGetWrapper<cl_ulong>(clGetDeviceInfo, deviceId, CL_DEVICE_GLOBAL_MEM_SIZE);
+            const auto strName = clGetWrapperString(clGetDeviceInfo, deviceId, CL_DEVICE_NAME);
+            const auto computeUnits = clGetWrapper<cl_uint>(clGetDeviceInfo, deviceId, CL_DEVICE_MAX_COMPUTE_UNITS);
+            const auto globalMemSize = clGetWrapper<cl_ulong>(clGetDeviceInfo, deviceId, CL_DEVICE_GLOBAL_MEM_SIZE);
 
-			std::cout << "  GPU" << i << ": " << strName << ", " << globalMemSize << " bytes available, " << computeUnits << " compute units" << std::endl;
-			vDevices.push_back(vFoundDevices[i]);
-			mDeviceIndex[vFoundDevices[i]] = i;
-		}
+            std::cout << "  GPU" << i << ": " << strName << ", " << globalMemSize << " bytes available, " << computeUnits << " compute units" << std::endl;
+            vDevices.push_back(vFoundDevices[i]);
+            mDeviceIndex[vFoundDevices[i]] = i;
+        }
 
-		if (vDevices.empty()) {
-			return 1;
-		}
+        if (vDevices.empty()) {
+            return 1;
+        }
 
-		std::cout << std::endl;
-		std::cout << "Initializing OpenCL..." << std::endl;
-		std::cout << "  Creating context..." << std::flush;
-		auto clContext = clCreateContext( NULL, vDevices.size(), vDevices.data(), NULL, NULL, &errorCode);
-		if (printResult(clContext, errorCode)) {
-			return 1;
-		}
+        std::cout << std::endl;
+        std::cout << "Initializing OpenCL..." << std::endl;
+        std::cout << "  Creating context..." << std::flush;
+        auto clContext = clCreateContext( NULL, vDevices.size(), vDevices.data(), NULL, NULL, &errorCode);
+        if (printResult(clContext, errorCode)) {
+            return 1;
+        }
 
-		cl_program clProgram;
-		if (vDeviceBinary.size() == vDevices.size()) {
-			// Create program from binaries
-			std::cout << "  Loading kernel from binary..." << std::flush;
-			const unsigned char * * pKernels = new const unsigned char *[vDevices.size()];
-			for (size_t i = 0; i < vDeviceBinary.size(); ++i) {
-				pKernels[i] = reinterpret_cast<const unsigned char *>(vDeviceBinary[i].data());
-			}
+        cl_program clProgram;
+        if (vDeviceBinary.size() == vDevices.size()) {
+            // Create program from binaries
+            std::cout << "  Loading kernel from binary..." << std::flush;
+            std::vector<const unsigned char*> pKernels(vDevices.size());
+            for (size_t i = 0; i < vDeviceBinary.size(); ++i) {
+                pKernels[i] = reinterpret_cast<const unsigned char *>(vDeviceBinary[i].data());
+            }
 
-			cl_int * pStatus = new cl_int[vDevices.size()];
+            std::vector<int> pStatus(vDevices.size());
+            clProgram = clCreateProgramWithBinary(clContext, vDevices.size(), vDevices.data(), vDeviceBinarySize.data(), pKernels.data(), pStatus.data(), &errorCode);
+            if(printResult(clProgram, errorCode)) {
+                return 1;
+            }
+        } else {
+            // Create a program from the kernel source
+            std::cout << "  Compiling kernel..." << std::flush;
+            const std::string strKeccak = readFile("keccak.cl");
+            const std::string strVanity = readFile("eradicate2.cl");
+            const char * szKernels[] = { strKeccak.c_str(), strVanity.c_str() };
 
-			clProgram = clCreateProgramWithBinary(clContext, vDevices.size(), vDevices.data(), vDeviceBinarySize.data(), pKernels, pStatus, &errorCode);
-			if(printResult(clProgram, errorCode)) {
-				return 1;
-			}
-		} else {
-			// Create a program from the kernel source
-			std::cout << "  Compiling kernel..." << std::flush;
-			const std::string strKeccak = readFile("keccak.cl");
-			const std::string strVanity = readFile("eradicate2.cl");
-			const char * szKernels[] = { strKeccak.c_str(), strVanity.c_str() };
+            clProgram = clCreateProgramWithSource(clContext, sizeof(szKernels) / sizeof(char *), szKernels, NULL, &errorCode);
+            if (printResult(clProgram, errorCode)) {
+                return 1;
+            }
+        }
 
-			clProgram = clCreateProgramWithSource(clContext, sizeof(szKernels) / sizeof(char *), szKernels, NULL, &errorCode);
-			if (printResult(clProgram, errorCode)) {
-				return 1;
-			}
-		}
+        // Build the program
+        std::cout << "  Building program..." << std::flush;
 
-		// Build the program
-		std::cout << "  Building program..." << std::flush;
+        const std::string strBuildOptions = "-D ERADICATE2_MAX_SCORE=" + lexical_cast::write(ERADICATE2_MAX_SCORE) + " -D ERADICATE2_INITHASH=" + strPreprocessorInitStructure;
+        if (printResult(clBuildProgram(clProgram, vDevices.size(), vDevices.data(), strBuildOptions.c_str(), NULL, NULL))) {
+    #ifdef ERADICATE2_DEBUG
+            std::cout << std::endl;
+            std::cout << "build log:" << std::endl;
 
-		const std::string strBuildOptions = "-D ERADICATE2_MAX_SCORE=" + lexical_cast::write(ERADICATE2_MAX_SCORE) + " -D ERADICATE2_INITHASH=" + strPreprocessorInitStructure;
-		if (printResult(clBuildProgram(clProgram, vDevices.size(), vDevices.data(), strBuildOptions.c_str(), NULL, NULL))) {
-#ifdef ERADICATE2_DEBUG
-			std::cout << std::endl;
-			std::cout << "build log:" << std::endl;
+            size_t sizeLog;
+            clGetProgramBuildInfo(clProgram, vDevices[0], CL_PROGRAM_BUILD_LOG, 0, NULL, &sizeLog);
+            std::vector<char> szLog(sizeLog);
+            clGetProgramBuildInfo(clProgram, vDevices[0], CL_PROGRAM_BUILD_LOG, sizeLog, szLog.data(), NULL);
 
-			size_t sizeLog;
-			clGetProgramBuildInfo(clProgram, vDevices[0], CL_PROGRAM_BUILD_LOG, 0, NULL, &sizeLog);
-			char * const szLog = new char[sizeLog];
-			clGetProgramBuildInfo(clProgram, vDevices[0], CL_PROGRAM_BUILD_LOG, sizeLog, szLog, NULL);
+            std::cout << std::string(szLog.begin(), szLog.end()) << std::endl;
+    #endif
+            return 1;
+        }
 
-			std::cout << szLog << std::endl;
-			delete[] szLog;
-#endif
-			return 1;
-		}
+        std::cout << std::endl;
 
-		std::cout << std::endl;
+        Dispatcher d(clContext, clProgram, worksizeMax == 0 ? size : worksizeMax, size);
+        for (auto & i : vDevices) {
+            d.addDevice(i, worksizeLocal, mDeviceIndex[i]);
+        }
 
-		Dispatcher d(clContext, clProgram, worksizeMax == 0 ? size : worksizeMax, size);
-		for (auto & i : vDevices) {
-			d.addDevice(i, worksizeLocal, mDeviceIndex[i]);
-		}
+        d.run(mode);
+        clReleaseContext(clContext);
+        return 0;
+    } catch (std::runtime_error & e) {
+        std::cout << "std::runtime_error - " << e.what() << std::endl;
+    } catch (...) {
+        std::cout << "unknown exception occured" << std::endl;
+    }
 
-		d.run(mode);
-		clReleaseContext(clContext);
-		return 0;
-	} catch (std::runtime_error & e) {
-		std::cout << "std::runtime_error - " << e.what() << std::endl;
-	} catch (...) {
-		std::cout << "unknown exception occured" << std::endl;
-	}
-
-	return 1;
+    return 1;
 }
