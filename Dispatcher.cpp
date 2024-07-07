@@ -94,7 +94,6 @@ void Dispatcher::Device::freeResources() {
         clReleaseKernel(m_kernelIterate);
         m_kernelIterate = nullptr;
     }
-    // Освобождение буферов памяти
     m_memResult.release();
     m_memMode.release();
 }
@@ -107,16 +106,23 @@ Dispatcher::Dispatcher(cl_context & clContext, cl_program & clProgram, const siz
 Dispatcher::~Dispatcher() {
     std::cout << "Releasing OpenCL resources in Dispatcher destructor" << std::endl;
     for (Device* device : m_vDevices) {
-        delete device;
+        if (device) {
+            delete device;
+        }
     }
-    m_vDevices.clear();
+	m_vDevices.clear();
     if (m_eventFinished) {
         clReleaseEvent(m_eventFinished);
         m_eventFinished = nullptr;
     }
-    // Освобождение контекста и программы
-    clReleaseContext(m_clContext);
-    clReleaseProgram(m_clProgram);
+	if (m_clContext) {
+		clReleaseContext(m_clContext);
+		m_clContext = nullptr;
+	}
+    if (m_clProgram) {
+		clReleaseProgram(m_clProgram);
+		m_clProgram = nullptr;
+	}
 }
 
 void Dispatcher::addDevice(cl_device_id clDeviceId, const size_t worksizeLocal, const size_t index) {
@@ -161,8 +167,10 @@ void Dispatcher::run(const mode & mode) {
 
     // Wait for finish event
     clWaitForEvents(1, &m_eventFinished);
-    clReleaseEvent(m_eventFinished);
-    m_eventFinished = NULL;
+	if (m_eventFinished) {
+        clReleaseEvent(m_eventFinished);
+        m_eventFinished = nullptr;
+    }
 }
 
 void Dispatcher::enqueueKernel(cl_command_queue & clQueue, cl_kernel & clKernel, size_t worksizeGlobal, const size_t worksizeLocal, cl_event * pEvent) {
@@ -197,8 +205,7 @@ void Dispatcher::enqueueKernelDevice(Device & d, cl_kernel & clKernel, size_t wo
 void Dispatcher::deviceDispatch(Device & d) {
     for (auto i = ERADICATE2_MAX_SCORE; i > m_clScoreMax; --i) {
         if (i >= d.m_memResult.size()) {
-			std::cerr << "Index " << i << " is out of bounds for d.m_memResult with size " << d.m_memResult.size() << std::endl; // 666
-            continue; // Предотвращение выхода за пределы массива
+			continue; // Prevent array overruns
         }
 
         result & r = d.m_memResult[i];
@@ -247,5 +254,8 @@ void CL_CALLBACK Dispatcher::staticCallback(cl_event event, cl_int event_command
 
     Device * const pDevice = static_cast<Device *>(user_data);
     pDevice->m_parent.deviceDispatch(*pDevice);
-    clReleaseEvent(event);
+    if (event) {
+        clReleaseEvent(event);
+        event = nullptr;
+    }
 }

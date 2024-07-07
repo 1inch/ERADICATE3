@@ -183,7 +183,7 @@ std::vector<char> hexStringToVector(const std::string& hex) {
         char byte = (char) strtol(byteString.c_str(), nullptr, 16);
         charArray[i / 2] = byte;
     }
-    charArray[length / 2] = '\0'; // добавляем символ конца строки
+    charArray[length / 2] = '\0'; // Add the end of line character
     return charArray;
 }
 
@@ -330,7 +330,7 @@ int main(int argc, char * * argv) {
         std::cout << std::endl;
         std::cout << "Initializing OpenCL..." << std::endl;
         std::cout << "  Creating context..." << std::flush;
-        auto clContext = clCreateContext( NULL, vDevices.size(), vDevices.data(), NULL, NULL, &errorCode);
+        auto clContext = clCreateContext(NULL, vDevices.size(), vDevices.data(), NULL, NULL, &errorCode);
         if (printResult(clContext, errorCode)) {
             return 1;
         }
@@ -389,7 +389,10 @@ int main(int argc, char * * argv) {
         }
 
         d.run(mode);
-        clReleaseContext(clContext);
+        if (clContext) {
+			clReleaseContext(clContext);
+			clContext = nullptr;
+		}
         return 0;
     } catch (std::runtime_error & e) {
         std::cout << "std::runtime_error - " << e.what() << std::endl;

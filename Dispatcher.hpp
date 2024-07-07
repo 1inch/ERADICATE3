@@ -84,7 +84,6 @@ class Dispatcher {
 
         cl_event m_eventFinished;
 
-        // Run information
         std::mutex m_mutex;
         std::chrono::time_point<std::chrono::steady_clock> timeStart;
         Speed m_speed;
