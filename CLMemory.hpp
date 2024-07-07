@@ -16,9 +16,7 @@ template<typename T> class CLMemory {
 		}
 
 		~CLMemory() {
-			if(m_bFree) {
-				delete [] m_pData;
-			}
+			release();
 		}
 
 		static void setKernelArg(cl_kernel & clKernel, const cl_uint arg_index, const T & t) {
@@ -48,6 +46,13 @@ template<typename T> class CLMemory {
 			auto res = clEnqueueWriteBuffer(m_clQueue, m_clMem, block, 0, m_size, m_pData, 0, NULL, NULL);
 			if( res != CL_SUCCESS ) {
 				throw std::runtime_error("clEnqueueWriteBuffer failed - " + lexical_cast::write(res));
+			}
+		}
+
+		void release() {
+			if (m_clMem) {
+				clReleaseMemObject(m_clMem);
+				m_clMem = nullptr;
 			}
 		}
 
