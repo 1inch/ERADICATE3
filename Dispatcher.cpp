@@ -150,8 +150,8 @@ void Dispatcher::run(const mode & mode) {
         // Kernel arguments - eradicate2_iterate
         d.m_memResult.setKernelArg(d.m_kernelIterate, 0);
         d.m_memMode.setKernelArg(d.m_kernelIterate, 1);
-        CLMemory<cl_uchar>::setKernelArg(d.m_kernelIterate, 2, d.m_clScoreMax); // Updated in handleResult()
-        CLMemory<cl_uint>::setKernelArg(d.m_kernelIterate, 3, static_cast<cl_uint>(d.m_index));
+        CLMemory<cl_uchar>::setKernelArg(d.m_kernelIterate, 2, d.m_clScoreMax); // Updated in handleResult()		
+		clSetKernelArg(d.m_kernelIterate, 3, sizeof(cl_uint), &d.m_index);
     }
 
     m_quit = false;
@@ -203,7 +203,7 @@ void Dispatcher::enqueueKernelDevice(Device & d, cl_kernel & clKernel, size_t wo
 }
 
 void Dispatcher::deviceDispatch(Device & d) {
-    for (auto i = ERADICATE2_MAX_SCORE; i > m_clScoreMax; --i) {
+    for (size_t i = ERADICATE2_MAX_SCORE; i > m_clScoreMax; --i) {
         if (i >= d.m_memResult.size()) {
 			continue; // Prevent array overruns
         }
@@ -238,7 +238,8 @@ void Dispatcher::deviceDispatch(Device & d) {
         cl_event event;
         d.m_memResult.read(false, &event);
 
-        CLMemory<cl_uint>::setKernelArg(d.m_kernelIterate, 4, static_cast<cl_uint>(++d.m_round));
+        ++d.m_round;
+		clSetKernelArg(d.m_kernelIterate, 4, sizeof(cl_uint), &d.m_round); // Round information updated in deviceDispatch()
         enqueueKernelDevice(d, d.m_kernelIterate, m_size, nullptr);
         clFlush(d.m_clQueue);
 
