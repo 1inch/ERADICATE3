@@ -35,12 +35,13 @@ void Speed::update(const unsigned int numPoints, const unsigned int indexDevice)
 	const auto ns = std::chrono::steady_clock::now().time_since_epoch().count();
 	const bool bPrint = ((ns - m_lastPrint) / 1000000) > m_intervalPrintMs;
 
-	updateList(numPoints, ns, m_lSamples);
-	updateList(numPoints, ns, m_mDeviceSamples[indexDevice]);
+	// updateList(numPoints, ns, m_lSamples);
+	// updateList(numPoints, ns, m_mDeviceSamples[indexDevice]);
 
 	if (bPrint) {
 		m_lastPrint = ns;
-		this->print();
+		std::cout << "\33[2K\r" << ns << "\r" << std::flush;
+		// this->print();
 	}
 }
 
