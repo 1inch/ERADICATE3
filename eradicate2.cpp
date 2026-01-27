@@ -34,25 +34,37 @@ std::string readFile(const char * const szFilename)
 
 std::vector<cl_device_id> getAllDevices(cl_device_type deviceType = CL_DEVICE_TYPE_GPU)
 {
-	std::vector<cl_device_id> vDevices;
+    std::vector<cl_device_id> vDevices;
 
-	cl_uint platformIdCount = 0;
-	clGetPlatformIDs (0, NULL, &platformIdCount);
+    cl_uint platformIdCount = 0;
+    cl_int err = clGetPlatformIDs(0, nullptr, &platformIdCount);
+    if (err != CL_SUCCESS || platformIdCount == 0) return vDevices;
 
-	std::vector<cl_platform_id> platformIds (platformIdCount);
-	clGetPlatformIDs (platformIdCount, platformIds.data (), NULL);
+    std::vector<cl_platform_id> platformIds(platformIdCount);
+    err = clGetPlatformIDs(platformIdCount, platformIds.data(), nullptr);
+    if (err != CL_SUCCESS) return vDevices;
 
-	for( auto it = platformIds.cbegin(); it != platformIds.cend(); ++it ) {
-		cl_uint countDevice;
-		clGetDeviceIDs(*it, deviceType, 0, NULL, &countDevice);
+    for (auto p : platformIds) {
+        cl_uint countDevice = 0;
 
-		std::vector<cl_device_id> deviceIds(countDevice);
-		clGetDeviceIDs(*it, deviceType, countDevice, deviceIds.data(), &countDevice);
+        err = clGetDeviceIDs(p, deviceType, 0, nullptr, &countDevice);
+        if (err == CL_DEVICE_NOT_FOUND || countDevice == 0) {
+            continue; // there's no such type of GPU on this platform
+        }
+        if (err != CL_SUCCESS) {
+            continue;
+        }
 
-		std::copy( deviceIds.begin(), deviceIds.end(), std::back_inserter(vDevices) );
-	}
+        std::vector<cl_device_id> deviceIds(countDevice);
+        err = clGetDeviceIDs(p, deviceType, countDevice, deviceIds.data(), nullptr);
+        if (err != CL_SUCCESS) {
+            continue;
+        }
 
-	return vDevices;
+        vDevices.insert(vDevices.end(), deviceIds.begin(), deviceIds.end());
+    }
+
+    return vDevices;
 }
 
 template <typename T, typename U, typename V, typename W>
