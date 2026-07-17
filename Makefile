@@ -9,10 +9,11 @@ ifeq ($(UNAME_S),Darwin)
 	LDFLAGS=-framework OpenCL
 	CFLAGS=-c -std=c++11 -Wall -mmmx -O2
 else ifneq (,$(findstring _NT,$(UNAME_S)))
-	# Windows (MSYS2/MinGW): -mcmodel=large is not supported by PE targets,
-	# -static avoids depending on libstdc++/libgcc/winpthread DLLs at runtime
+	# Windows (MSYS2/MinGW): -mcmodel=large is not supported by PE targets.
+	# GCC runtime libs are linked statically so the exe runs without MinGW
+	# DLLs, but OpenCL must stay dynamic (system OpenCL.dll from GPU driver).
 	EXECUTABLE=ERADICATE2.x64.exe
-	LDFLAGS=-s -static -lOpenCL
+	LDFLAGS=-s -static-libgcc -static-libstdc++ -Wl,-Bstatic,--whole-archive -lwinpthread -Wl,--no-whole-archive,-Bdynamic -lOpenCL
 	CFLAGS=-c -std=c++11 -Wall -mmmx -O2
 else
 	LDFLAGS=-s -lOpenCL -mcmodel=large

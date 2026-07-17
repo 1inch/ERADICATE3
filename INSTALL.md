@@ -70,6 +70,7 @@ Run `./ERADICATE2.x64.exe --help` for all options (modes, device selection, work
 ### Troubleshooting (Windows)
 
 - **`CL/cl.h: No such file or directory`** — the OpenCL packages are missing or you are in the wrong shell. Re-run the `pacman -S` command above and make sure you build from the **UCRT64** shell, not the plain "MSYS2 MSYS" one.
+- **`cannot find -lOpenCL`** — the import library is missing: install it with `pacman -S mingw-w64-ucrt-x86_64-opencl-icd` (it provides `/ucrt64/lib/libOpenCL.dll.a`). Also make sure the Makefile does not link with plain `-static` — MSYS2 has no static `libOpenCL.a`, so OpenCL must be linked dynamically.
 - **Program prints `Devices:` and exits immediately** — no OpenCL-capable GPU was found. Install/update your GPU vendor driver (step 1). Remote-desktop sessions and VMs often expose no GPU.
 - **`error: failed to open input file` / kernel compile errors at startup** — you are not running from the directory containing `keccak.cl` and `eradicate2.cl`.
 
