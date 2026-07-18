@@ -11,7 +11,7 @@
 #include <algorithm>
 #include "hexadecimal.hpp"
 
-static void printResult(const result r, const cl_uchar score, const std::chrono::time_point<std::chrono::steady_clock> & timeStart) {
+static void printResult(const result r, const cl_uchar score, const std::chrono::time_point<std::chrono::steady_clock> & timeStart, const bool bPrintFullSalt) {
 	// Time delta
 	const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - timeStart).count();
 
@@ -21,7 +21,15 @@ static void printResult(const result r, const cl_uchar score, const std::chrono:
 
 	// Print
 	const std::string strVT100ClearLine = "\33[2K\r";
-	std::cout << strVT100ClearLine << "  Time: " << std::setw(5) << seconds << "s Score: " << std::setw(2) << (int) score << " Magic: 0x" << strSalt.substr(0, 32) << " Address: 0x" << strPublic << std::endl;
+	std::cout << strVT100ClearLine << "  Time: " << std::setw(5) << seconds << "s Score: " << std::setw(2) << (int) score;
+	if (bPrintFullSalt) {
+		std::cout << " Salt: 0x" << strSalt;
+	} else {
+		// In NFT mode only the upper half of the salt is mined; it is the
+		// bytes16 "magic" passed to the deployer's mint()/mintFor().
+		std::cout << " Magic: 0x" << strSalt.substr(0, 32);
+	}
+	std::cout << " Address: 0x" << strPublic << std::endl;
 }
 
 Dispatcher::OpenCLException::OpenCLException(const std::string s, const cl_int res) :
@@ -39,7 +47,7 @@ void Dispatcher::OpenCLException::OpenCLException::throwIfError(const std::strin
 
 cl_command_queue Dispatcher::Device::createQueue(cl_context & clContext, cl_device_id & clDeviceId) {
 	// nVidia CUDA Toolkit 10.1 only supports OpenCL 1.2 so we revert back to older functions for compatability
-#ifdef ERADICATE2_DEBUG
+#ifdef ERADICATE3_DEBUG
 	cl_command_queue_properties p = CL_QUEUE_PROFILING_ENABLE;
 #else
 	cl_command_queue_properties p = 0;
@@ -65,8 +73,8 @@ Dispatcher::Device::Device(Dispatcher & parent, cl_context & clContext, cl_progr
 	m_worksizeLocal(worksizeLocal),
 	m_clScoreMax(0),
 	m_clQueue(createQueue(clContext, clDeviceId) ),
-	m_kernelIterate(createKernel(clProgram, "eradicate2_iterate")),
-	m_memResult(clContext, m_clQueue, CL_MEM_READ_WRITE, ERADICATE2_MAX_SCORE + 1),
+	m_kernelIterate(createKernel(clProgram, "eradicate3_iterate")),
+	m_memResult(clContext, m_clQueue, CL_MEM_READ_WRITE, ERADICATE3_MAX_SCORE + 1),
 	m_memMode(clContext, m_clQueue, CL_MEM_READ_ONLY | CL_MEM_HOST_WRITE_ONLY, 1),
 	m_round(0)
 {
@@ -77,8 +85,8 @@ Dispatcher::Device::~Device() {
 
 }
 
-Dispatcher::Dispatcher(cl_context & clContext, cl_program & clProgram, const size_t worksizeMax, const size_t size)
-	: m_clContext(clContext), m_clProgram(clProgram), m_worksizeMax(worksizeMax), m_size(size), m_clScoreMax(0), m_eventFinished(NULL), m_countPrint(0) {
+Dispatcher::Dispatcher(cl_context & clContext, cl_program & clProgram, const size_t worksizeMax, const size_t size, const bool bPrintFullSalt)
+	: m_clContext(clContext), m_clProgram(clProgram), m_worksizeMax(worksizeMax), m_size(size), m_bPrintFullSalt(bPrintFullSalt), m_clScoreMax(0), m_eventFinished(NULL), m_countPrint(0) {
 
 }
 
@@ -99,7 +107,7 @@ void Dispatcher::run(const mode & mode) {
 		Device & d = **it;
 		d.m_round = 0;
 
-		for (size_t i = 0; i < ERADICATE2_MAX_SCORE + 1; ++i) {
+		for (size_t i = 0; i < ERADICATE3_MAX_SCORE + 1; ++i) {
 			d.m_memResult[i].found = 0;
 		}
 
@@ -108,7 +116,7 @@ void Dispatcher::run(const mode & mode) {
 		d.m_memMode.write(true);
 		d.m_memResult.write(true);
 
-		// Kernel arguments - eradicate2_iterate
+		// Kernel arguments - eradicate3_iterate
 		d.m_memResult.setKernelArg(d.m_kernelIterate, 0);
 		d.m_memMode.setKernelArg(d.m_kernelIterate, 1);
 		CLMemory<cl_uchar>::setKernelArg(d.m_kernelIterate, 2, d.m_clScoreMax); // Updated in handleResult()		
@@ -165,7 +173,7 @@ void Dispatcher::enqueueKernelDevice(Device & d, cl_kernel & clKernel, size_t wo
 
 void Dispatcher::deviceDispatch(Device & d) {
 	// Check result
-	for (auto i = ERADICATE2_MAX_SCORE; i > m_clScoreMax; --i) {
+	for (auto i = ERADICATE3_MAX_SCORE; i > m_clScoreMax; --i) {
 		result & r = d.m_memResult[i];
 
 		if (r.found > 0 && i >= d.m_clScoreMax) {
@@ -178,7 +186,7 @@ void Dispatcher::deviceDispatch(Device & d) {
 
 				// TODO: Add quit condition
 
-				printResult(r, i, timeStart);
+				printResult(r, i, timeStart, m_bPrintFullSalt);
 			}
 
 			break;

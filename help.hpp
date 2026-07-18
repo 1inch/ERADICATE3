@@ -4,17 +4,28 @@
 #include <string>
 
 const std::string g_strHelp = R"(
-usage: ./ERADICATE2 [OPTIONS]
+usage: ./ERADICATE3.x64 [OPTIONS]
+
+  By default ERADICATE3 mines full 32-byte salts for a plain CREATE3 factory
+  that uses the salt verbatim, e.g. Create3Deployer.deploy(salt, code). The
+  resulting address depends only on the factory address and the salt.
+
+  Deployment scheme:
+    -N, --nft               1inch Address NFT mode. Mines the bytes16 magic for
+                            mint(magic)/mintFor(magic, account); the deployer
+                            derives the salt as magic ++ keccak256(account)[16..31].
 
   Input:
-    -A, --address           Target address
-    -I, --init-code         Init code
-    -i, --init-code-file    Read init code from this file
+    -D, --deployer-address  CREATE3 factory address. Required in default mode.
+                            [default in NFT mode = 1ADD4E55ecEffd795B01d22203D280c93A2F1dc3]
+    -B, --bytecode-hash     keccak256 of the factory's CREATE2 proxy child
+                            bytecode.
+                            [default = 21c35dbe1b344a2488cf3321d6ce542f8e9f305544ff09e4993a62319a497c1f]
+    -A, --caller-address    NFT mode only (required there): account the vanity
+                            address is minted for. Rejected in default mode.
 
-    The init code should be expressed as a hexadecimal string having the
-    prefix 0x both when expressed on the command line with -I and in the
-    file pointed to by -i if used. Any whitespace will be trimmed. If no
-    init code is specified it defaults to an empty string.
+    Init code never affects CREATE3 addresses, so -I/--init-code and
+    -i/--init-code-file are rejected in both modes.
 
   Basic modes:
     --benchmark             Run without any scoring, a benchmark.
@@ -27,6 +38,7 @@ usage: ./ERADICATE2 [OPTIONS]
 
   Modes with arguments:
     --leading <single hex>  Score on hashes leading with given hex character.
+    --trailing <single hex> Score on hashes trailing with given hex character.
     --matching <hex string> Score on hashes matching given hex string.
 
   Advanced modes:
@@ -43,21 +55,19 @@ usage: ./ERADICATE2 [OPTIONS]
     -s, --skip <index>      Skip device given by index.
 
   Tweaking:
-    -w, --work <size>       Set OpenCL local work size. [default = 64]
-    -W, --work-max <size>   Set OpenCL maximum work size. [default = -i * -I]
+    -w, --work <size>       Set OpenCL local work size. [default = 128]
+    -W, --work-max <size>   Set OpenCL maximum work size. [default = -S value]
     -S, --size <size>       Set number of salts tried per loop.
                             [default = 16777216]
 
   Examples:
-    ./ERADICATE2 -A 0x00000000000000000000000000000000deadbeef -I 0x00 --leading 0
-    ./ERADICATE2 -A 0x00000000000000000000000000000000deadbeef -I 0x00 --zeros
+    ./ERADICATE3.x64 -D 0xaa710bd40c633Ab46d30Fc6baF6885143f3a6Dd7 --leading 0
+    ./ERADICATE3.x64 --nft -A 0x00000000000000000000000000000000deadbeef --zeros
 
   About:
-    ERADICATE2 is a vanity address generator for CREATE2 addresses that
-	utilizes computing power from GPUs using OpenCL.
-
-    Author: Johan Gustafsson <johan@johgu.se>
-    Beer donations: 0x000dead000ae1c8e8ac27103e4ff65f42a4e9203
+    ERADICATE3 is a vanity address generator for CREATE3 deployments that
+    utilizes computing power from GPUs using OpenCL. It is a fork of
+    ERADICATE2 by Johan Gustafsson.
 )";
 
 #endif /* HPP_HELP */
