@@ -140,39 +140,23 @@ std::string keccakDigest(const std::string data) {
 	return std::string(digest, 32);
 }
 
-void trim(std::string & s) {
-	const auto iLeft = s.find_first_not_of(" \t\r\n");
-	if (iLeft != std::string::npos) {
-		s.erase(0, iLeft);
-	}
-
-	const auto iRight = s.find_last_not_of(" \t\r\n");
-	if (iRight != std::string::npos) {
-		const auto count = s.length() - iRight - 1;
-		s.erase(iRight + 1, count);
-	}
-}
-
-std::string makePreprocessorInitHashExpression(const char* nft_address, const std::string & strAddressBinary, const char* bytecode_hash) {
-	std::random_device rd;
-	std::mt19937_64 eng(rd());
-	std::uniform_int_distribution<unsigned int> distr; // C++ requires integer type: "C2338	note : char, signed char, unsigned char, int8_t, and uint8_t are not allowed"
+// Builds the constant CREATE2 pre-image of the CREATE3 proxy:
+// 0xff ++ deployer(20) ++ salt(32) ++ keccak256(proxyBytecode)(32), plus keccak padding.
+// All arguments are binary strings. The kernel later varies salt words per thread/round.
+std::string makePreprocessorInitHashExpression(const std::string & strDeployerBinary, const std::string & strSaltBinary, const std::string & strBytecodeHashBinary) {
 	ethhash h = { {0} };
 
 	h.b[0] = 0xff;
 	for (int i = 0; i < 20; ++i) {
-		h.b[i + 1] = nft_address[i];
-	}
-
-	for (int i = 0; i < 16; ++i) {
-		h.b[i + 21] = distr(eng);
-	}
-	for (int i = 16; i < 32; ++i) {
-		h.b[i + 21] = strAddressBinary[i - 12];
+		h.b[i + 1] = strDeployerBinary[i];
 	}
 
 	for (int i = 0; i < 32; ++i) {
-		h.b[i + 53] = bytecode_hash[i];
+		h.b[i + 21] = strSaltBinary[i];
+	}
+
+	for (int i = 0; i < 32; ++i) {
+		h.b[i + 53] = strBytecodeHashBinary[i];
 	}
 
 	h.b[85] ^= 0x01;
@@ -189,22 +173,11 @@ std::string makePreprocessorInitHashExpression(const char* nft_address, const st
 	return oss.str();
 }
 
-const char* hexStringToConstChar(const std::string& hex) {
-    size_t length = hex.length();
-    char* charArray = new char[length / 2 + 1];
-    for (size_t i = 0; i < length; i += 2) {
-        std::string byteString = hex.substr(i, 2);
-        char byte = (char) strtol(byteString.c_str(), nullptr, 16);
-        charArray[i / 2] = byte;
-    }
-    charArray[length / 2] = '\0';
-    return charArray;
-}
-
 int main(int argc, char * * argv) {
 	try {
 		ArgParser argp(argc, argv);
 		bool bHelp = false;
+		bool bModeNft = false;
 		bool bModeBenchmark = false;
 		bool bModeZeroBytes = false;
 		bool bModeZeros = false;
@@ -224,12 +197,13 @@ int main(int argc, char * * argv) {
 		size_t worksizeMax = 0; // Will be automatically determined later if not overriden by user
 		size_t size = 16777216;
 		std::string strAddress;
-		std::string bytecode_hash = "21c35dbe1b344a2488cf3321d6ce542f8e9f305544ff09e4993a62319a497c1f";
-		std::string nft_address = "1ADD4E55ecEffd795B01d22203D280c93A2F1dc3";
+		std::string strBytecodeHash = "21c35dbe1b344a2488cf3321d6ce542f8e9f305544ff09e4993a62319a497c1f";
+		std::string strDeployerAddress;
 		std::string strInitCode;
 		std::string strInitCodeFile;
 
 		argp.addSwitch('h', "help", bHelp);
+		argp.addSwitch('N', "nft", bModeNft);
 		argp.addSwitch('0', "benchmark", bModeBenchmark);
 		argp.addSwitch('z', "zero-bytes", bModeZeroBytes);
 		argp.addSwitch('1', "zeros", bModeZeros);
@@ -249,8 +223,8 @@ int main(int argc, char * * argv) {
 		argp.addSwitch('W', "work-max", worksizeMax);
 		argp.addSwitch('S', "size", size);
 		argp.addSwitch('A', "caller-address", strAddress);
-		argp.addSwitch('B', "bytecode-hash", bytecode_hash); // create2 PROXY_CHILD_BYTECODE hash
-		argp.addSwitch('D', "deployer-address", nft_address); // create3 deployer address
+		argp.addSwitch('B', "bytecode-hash", strBytecodeHash); // create2 PROXY_CHILD_BYTECODE hash
+		argp.addSwitch('D', "deployer-address", strDeployerAddress); // create3 deployer address
 		argp.addSwitch('I', "init-code", strInitCode);
 		argp.addSwitch('i', "init-code-file", strInitCodeFile);
 
@@ -259,27 +233,76 @@ int main(int argc, char * * argv) {
 			return 1;
 		}
 
-		if (bHelp) {
+		const bool bScoringSelected = bModeBenchmark || bModeZeroBytes || bModeZeros || bModeLetters
+			|| bModeNumbers || bModeLeadingRange || bModeRange || bModeMirror || bModeDoubles
+			|| !strModeLeading.empty() || !strModeTrailing.empty() || !strModeMatching.empty();
+
+		if (bHelp || !bScoringSelected) {
 			std::cout << g_strHelp << std::endl;
 			return 0;
 		}
 
-		// Parse hexadecimal values and/or read init code from file
-		if (strInitCodeFile != "") {
-			std::ifstream ifs(strInitCodeFile);
-			if (!ifs.is_open()) {
-				std::cout << "error: failed to open input file for init code" << std::endl;
-				return 1;
-			}
-			strInitCode.assign(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>());
+		// CREATE3 addresses never depend on the deployed contract's init code.
+		if (!strInitCode.empty() || !strInitCodeFile.empty()) {
+			std::cout << "error: init code does not affect CREATE3 addresses, -I/--init-code and -i/--init-code-file are not supported" << std::endl;
+			return 1;
 		}
 
-		trim(strInitCode);
-		const std::string strAddressBinary = keccakDigest(parseHexadecimalBytes(strAddress)).substr(12);
-		const std::string strInitCodeDigest = keccakDigest(parseHexadecimalBytes(strInitCode));
-		const char* nft_address_chars = hexStringToConstChar(nft_address);
-		const char* bytecode_hash_chars = hexStringToConstChar(bytecode_hash);
-		const std::string strPreprocessorInitStructure = makePreprocessorInitHashExpression(nft_address_chars, strAddressBinary, bytecode_hash_chars);
+		if (bModeNft) {
+			if (strAddress.empty()) {
+				std::cout << "error: NFT mode requires -A/--caller-address, the account the vanity address is minted for" << std::endl;
+				return 1;
+			}
+			if (strDeployerAddress.empty()) {
+				strDeployerAddress = "1ADD4E55ecEffd795B01d22203D280c93A2F1dc3"; // 1inch Address NFT
+			}
+		} else {
+			if (!strAddress.empty()) {
+				std::cout << "error: -A/--caller-address is only used in NFT mode (-N/--nft); pure CREATE3 salts are not bound to a caller" << std::endl;
+				return 1;
+			}
+			if (strDeployerAddress.empty()) {
+				if (bModeBenchmark) {
+					// Benchmark measures throughput only; the factory address is irrelevant.
+					strDeployerAddress = "0000000000000000000000000000000000000000";
+				} else {
+					std::cout << "error: pure CREATE3 mode requires -D/--deployer-address, the factory whose address the resulting contract depends on" << std::endl;
+					return 1;
+				}
+			}
+		}
+
+		const std::string strDeployerBinary = parseHexadecimalBytes(strDeployerAddress);
+		const std::string strBytecodeHashBinary = parseHexadecimalBytes(strBytecodeHash);
+		if (strDeployerBinary.size() != 20) {
+			std::cout << "error: -D/--deployer-address must be a 20-byte hexadecimal address" << std::endl;
+			return 1;
+		}
+		if (strBytecodeHashBinary.size() != 32) {
+			std::cout << "error: -B/--bytecode-hash must be a 32-byte hexadecimal hash" << std::endl;
+			return 1;
+		}
+
+		// Base salt for mining. The kernel varies 12 of the first 16 bytes per
+		// device/thread/round; the remaining bytes stay as generated here.
+		std::random_device rd;
+		std::mt19937_64 eng(rd());
+		std::uniform_int_distribution<unsigned int> distr; // C++ requires integer type: "C2338	note : char, signed char, unsigned char, int8_t, and uint8_t are not allowed"
+		std::string strSaltBinary(32, '\0');
+		for (int i = 0; i < 32; ++i) {
+			strSaltBinary[i] = static_cast<char>(distr(eng));
+		}
+
+		if (bModeNft) {
+			// 1inch Address NFT scheme: salt = magic(16) ++ keccak256(account)[16..31],
+			// the lower half binds the address to the account minted for.
+			const std::string strAddressDigest = keccakDigest(parseHexadecimalBytes(strAddress));
+			for (int i = 0; i < 16; ++i) {
+				strSaltBinary[16 + i] = strAddressDigest[16 + i];
+			}
+		}
+
+		const std::string strPreprocessorInitStructure = makePreprocessorInitHashExpression(strDeployerBinary, strSaltBinary, strBytecodeHashBinary);
 
 		mode mode = ModeFactory::benchmark();
 		if (bModeBenchmark) {
@@ -368,7 +391,7 @@ int main(int argc, char * * argv) {
 			// Create a program from the kernel source
 			std::cout << "  Compiling kernel..." << std::flush;
 			const std::string strKeccak = readFile("keccak.cl");
-			const std::string strVanity = readFile("eradicate2.cl");
+			const std::string strVanity = readFile("eradicate3.cl");
 			const char * szKernels[] = { strKeccak.c_str(), strVanity.c_str() };
 
 			clProgram = clCreateProgramWithSource(clContext, sizeof(szKernels) / sizeof(char *), szKernels, NULL, &errorCode);
@@ -380,9 +403,9 @@ int main(int argc, char * * argv) {
 		// Build the program
 		std::cout << "  Building program..." << std::flush;
 
-		const std::string strBuildOptions = "-D ERADICATE2_MAX_SCORE=" + lexical_cast::write(ERADICATE2_MAX_SCORE) + " -D ERADICATE2_INITHASH=" + strPreprocessorInitStructure;
+		const std::string strBuildOptions = "-D ERADICATE3_MAX_SCORE=" + lexical_cast::write(ERADICATE3_MAX_SCORE) + " -D ERADICATE3_INITHASH=" + strPreprocessorInitStructure;
 		if (printResult(clBuildProgram(clProgram, vDevices.size(), vDevices.data(), strBuildOptions.c_str(), NULL, NULL))) {
-#ifdef ERADICATE2_DEBUG
+#ifdef ERADICATE3_DEBUG
 			std::cout << std::endl;
 			std::cout << "build log:" << std::endl;
 
@@ -399,7 +422,7 @@ int main(int argc, char * * argv) {
 
 		std::cout << std::endl;
 
-		Dispatcher d(clContext, clProgram, worksizeMax == 0 ? size : worksizeMax, size);
+		Dispatcher d(clContext, clProgram, worksizeMax == 0 ? size : worksizeMax, size, !bModeNft);
 		for (auto & i : vDevices) {
 			d.addDevice(i, worksizeLocal, mDeviceIndex[i]);
 		}

@@ -18,8 +18,8 @@
 #include "Speed.hpp"
 #include "types.hpp"
 
-#define ERADICATE2_SPEEDSAMPLES 20
-#define ERADICATE2_MAX_SCORE 40
+#define ERADICATE3_SPEEDSAMPLES 20
+#define ERADICATE3_MAX_SCORE 40
 
 class Dispatcher {
 	private:
@@ -56,7 +56,7 @@ class Dispatcher {
 		};
 
 	public:
-		Dispatcher(cl_context & clContext, cl_program & clProgram, const size_t worksizeMax, const size_t size);
+		Dispatcher(cl_context & clContext, cl_program & clProgram, const size_t worksizeMax, const size_t size, const bool bPrintFullSalt);
 		~Dispatcher();
 
 		void addDevice(cl_device_id clDeviceId, const size_t worksizeLocal, const size_t index);
@@ -80,6 +80,7 @@ class Dispatcher {
 		cl_program & m_clProgram;
 		const size_t m_worksizeMax;
 		const size_t m_size;
+		const bool m_bPrintFullSalt;
 		cl_uchar m_clScoreMax;
 		std::vector<Device *> m_vDevices;
 

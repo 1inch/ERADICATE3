@@ -52,27 +52,27 @@ make
 
 (If you already have the sources on disk, e.g. under `C:\git\ERADICATE3`, just `cd /c/git/ERADICATE3` instead of cloning.)
 
-This produces `ERADICATE2.x64.exe` in the project directory.
+This produces `ERADICATE3.x64.exe` in the project directory.
 
 ### 5. Run
 
-Run it **from the project directory** — the program loads `keccak.cl` and `eradicate2.cl` from the current working directory at startup:
+Run it **from the project directory** — the program loads `keccak.cl` and `eradicate3.cl` from the current working directory at startup:
 
 ```bash
-./ERADICATE2.x64.exe --benchmark
-./ERADICATE2.x64.exe -A 0x00000000000000000000000000000000deadbeef --leading 0
+./ERADICATE3.x64.exe --benchmark
+./ERADICATE3.x64.exe -D 0xaa710bd40c633Ab46d30Fc6baF6885143f3a6Dd7 --leading 0
 ```
 
 The binary is statically linked against the GCC runtime, so you can also run it from a regular `cmd`/PowerShell window — just make sure the two `.cl` files are next to it and it's your current directory.
 
-Run `./ERADICATE2.x64.exe --help` for all options (modes, device selection, work sizes).
+Run `./ERADICATE3.x64.exe --help` for all options (modes, device selection, work sizes).
 
 ### Troubleshooting (Windows)
 
 - **`CL/cl.h: No such file or directory`** — the OpenCL packages are missing or you are in the wrong shell. Re-run the `pacman -S` command above and make sure you build from the **UCRT64** shell, not the plain "MSYS2 MSYS" one.
 - **`cannot find -lOpenCL`** — the import library is missing: install it with `pacman -S mingw-w64-ucrt-x86_64-opencl-icd` (it provides `/ucrt64/lib/libOpenCL.dll.a`). Also make sure the Makefile does not link with plain `-static` — MSYS2 has no static `libOpenCL.a`, so OpenCL must be linked dynamically.
 - **Program prints `Devices:` and exits immediately** — no OpenCL-capable GPU was found. Install/update your GPU vendor driver (step 1). Remote-desktop sessions and VMs often expose no GPU.
-- **`error: failed to open input file` / kernel compile errors at startup** — you are not running from the directory containing `keccak.cl` and `eradicate2.cl`.
+- **`error: failed to open input file` / kernel compile errors at startup** — you are not running from the directory containing `keccak.cl` and `eradicate3.cl`.
 
 ---
 
@@ -87,7 +87,7 @@ Also install your GPU vendor's OpenCL runtime if it isn't already present (e.g. 
 
 ```bash
 make
-./ERADICATE2.x64 --benchmark
+./ERADICATE3.x64 --benchmark
 ```
 
 ## macOS
@@ -97,7 +97,7 @@ OpenCL ships with the system; you only need the Xcode command-line tools:
 ```bash
 xcode-select --install
 make
-./ERADICATE2.x64 --benchmark
+./ERADICATE3.x64 --benchmark
 ```
 
 ---
@@ -106,13 +106,13 @@ make
 
 ```bash
 # Benchmark, no scoring
-./ERADICATE2.x64.exe --benchmark
+./ERADICATE3.x64.exe --benchmark
 
-# Leading zeros
-./ERADICATE2.x64.exe -A 0x00000000000000000000000000000000deadbeef --leading 0
+# Leading zeros, for a plain CREATE3 factory (default mode)
+./ERADICATE3.x64.exe -D 0xaa710bd40c633Ab46d30Fc6baF6885143f3a6Dd7 --leading 0
 
-# Most zero characters anywhere in the address
-./ERADICATE2.x64.exe -A 0x00000000000000000000000000000000deadbeef --zeros
+# Most zero characters anywhere in the address, 1inch Address NFT mode
+./ERADICATE3.x64.exe --nft -A 0x00000000000000000000000000000000deadbeef --zeros
 ```
 
 See `README.md` or `--help` for the full list of scoring modes and tuning options (`-w`, `-W`, `-S`).
