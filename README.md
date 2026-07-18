@@ -1,48 +1,45 @@
 # ERADICATE3
 
-ERADICATE3 is a GPU-accelerated (OpenCL) vanity address generator for **CREATE3**
-deployments. It brute-forces salts until the resulting CREATE3 address matches the
-pattern you want.
+ERADICATE3 is a GPU-accelerated (OpenCL) vanity address generator for **CREATE3** deployments. It brute-forces salts until the resulting CREATE3 address matches the pattern you want.
 
-It is a fork of [ERADICATE2](https://github.com/johguse/ERADICATE2). Where ERADICATE2
-searched CREATE2 addresses, ERADICATE3 mines the salt used by a CREATE3 deployer, so
-the generated address depends on the **deployer address**, the deployer's **proxy
-bytecode hash**, and the **caller address** — not on the init code of the contract you
-eventually deploy.
+It is a fork of [ERADICATE2](https://github.com/johguse/ERADICATE2). Where ERADICATE2 searched CREATE2 addresses, ERADICATE3 mines the salt used by a CREATE3 factory, so the generated address depends only on the **factory (deployer) address**, the factory's **proxy bytecode hash**, and the **salt** — not on the init code of the contract you eventually deploy.
+
+Two deployment schemes are supported:
+
+- **Pure CREATE3 (default)** — for factories that use your 32-byte salt verbatim, e.g. a [`Create3Deployer`](https://etherscan.io/address/0xaa710bd40c633Ab46d30Fc6baF6885143f3a6Dd7) with `deploy(bytes32 salt, bytes code)`. The full salt is mined and printed, ready to pass to `deploy(salt, code)` / `addressOf(salt)`.
+- **1inch Address NFT mode (`--nft`)** — for the [1inch Address NFT](https://etherscan.io/address/0x1ADD4E55ecEffd795B01d22203D280c93A2F1dc3) deployer, which derives the salt as `magic | (keccak256(account) & LOW_128_BIT_MASK)`: the high 16 bytes are a free-to-choose `magic` and the low 16 bytes are bound to the account as front-running protection. The 16-byte magic is mined and printed; pass it to `mint(magic)` or `mintFor(magic, account)` to claim the address.
 
 ## Building
 
-Requires an OpenCL SDK/runtime for your GPU and a C++11 compiler.
+Requires an OpenCL SDK/runtime for your GPU and a C++11 compiler — see [INSTALL.md](INSTALL.md) for platform-specific instructions.
 
 ```
 make
 ```
 
-This produces the executable `ERADICATE2.x64` (`ERADICATE2.x64.exe` on Windows).
-The OpenCL kernel files (`keccak.cl`, `eradicate2.cl`) are read at runtime, so run the
-binary from the repository directory.
+This produces the executable `ERADICATE3.x64` (`ERADICATE3.x64.exe` on Windows). The OpenCL kernel files (`keccak.cl`, `eradicate3.cl`) are read at runtime, so run the binary from the repository directory.
 
 ## Usage
 
 ```
-usage: ./ERADICATE2.x64 [OPTIONS]
+usage: ./ERADICATE3.x64 [OPTIONS]
+
+  Deployment scheme:
+    -N, --nft               1inch Address NFT mode. Mines the bytes16 magic for
+                            mint(magic)/mintFor(magic, account); the deployer
+                            derives the salt as magic ++ keccak256(account)[16..31].
 
   Input:
-    -A, --caller-address    Address that calls the CREATE3 deployer. Used when
-                            deriving the salt, so it must match the address you
-                            will deploy from.
-    -D, --deployer-address  CREATE3 deployer (factory) address.
-                            [default = 1ADD4E55ecEffd795B01d22203D280c93A2F1dc3]
-    -B, --bytecode-hash     keccak256 of the deployer's CREATE2 proxy child
+    -D, --deployer-address  CREATE3 factory address. Required in default mode.
+                            [default in NFT mode = 1ADD4E55ecEffd795B01d22203D280c93A2F1dc3]
+    -B, --bytecode-hash     keccak256 of the factory's CREATE2 proxy child
                             bytecode.
                             [default = 21c35dbe1b344a2488cf3321d6ce542f8e9f305544ff09e4993a62319a497c1f]
-    -I, --init-code         Init code (hex).
-    -i, --init-code-file    Read init code from this file.
+    -A, --caller-address    NFT mode only (required there): account the vanity
+                            address is minted for. Rejected in default mode.
 
-    The init code should be expressed as a hexadecimal string having the
-    prefix 0x both when expressed on the command line with -I and in the
-    file pointed to by -i if used. Any whitespace will be trimmed. If no
-    init code is specified it defaults to an empty string.
+    Init code never affects CREATE3 addresses, so -I/--init-code and
+    -i/--init-code-file are rejected in both modes.
 
   Basic modes:
     --benchmark             Run without any scoring, a benchmark.
@@ -80,38 +77,49 @@ usage: ./ERADICATE2.x64 [OPTIONS]
 
 ## Examples
 
-Mine an address with as many leading zeros as possible for a given caller, using the
-default 1inch deployer and proxy bytecode hash:
+### Pure CREATE3 (default)
+
+Mine an address with as many leading zeros as possible for a plain CREATE3 factory:
 
 ```
-./ERADICATE2.x64 -A 0x00000000000000000000000000000000deadbeef --leading 0
+./ERADICATE3.x64 -D 0xaa710bd40c633Ab46d30Fc6baF6885143f3a6Dd7 --leading 0
 ```
 
-Score on zeros anywhere in the address:
+Each match prints the full 32-byte salt:
 
 ```
-./ERADICATE2.x64 -A 0x00000000000000000000000000000000deadbeef --zeros
+  Time:    12s Score: 10 Salt: 0x37e1...c04b Address: 0x00000...
 ```
 
-Use a custom deployer and proxy bytecode hash:
+Use that salt directly with the factory: verify with `addressOf(salt)` and deploy with `deploy(salt, initCode)`. The address does not depend on the init code or on who sends the transaction (though factories like `Create3Deployer` may restrict who is allowed to call `deploy`).
+
+### 1inch Address NFT mode
+
+Mine a magic bound to your account (deployer defaults to the 1inch Address NFT contract):
 
 ```
-./ERADICATE2.x64 \
-  -A 0x00000000000000000000000000000000deadbeef \
-  -D 0xYourDeployerAddress \
+./ERADICATE3.x64 --nft -A 0x00000000000000000000000000000000deadbeef --zeros
+```
+
+Each match prints the 16-byte magic:
+
+```
+  Time:    12s Score: 10 Magic: 0x37e1...c04b Address: 0x00000...
+```
+
+Pass it to the deployer's `mint(magic)` / `mintFor(magic, account)`. The full CREATE3 salt is that magic in the high 16 bytes plus the low 16 bytes of `keccak256(account)`, so the address only reproduces for the same `-A` account. Anyone can submit the mint transaction — the address is bound to the account, not to the transaction sender.
+
+### Custom factory
+
+Any CREATE3 factory that uses the standard proxy bytecode works with the default `-B`; override it for a non-standard proxy:
+
+```
+./ERADICATE3.x64 \
+  -D 0xYourFactoryAddress \
   -B 0xYourProxyChildBytecodeHash \
   --matching dead
 ```
 
-## Notes
-
-- The salt that produces a match is what you feed to your CREATE3 deployer. Because
-  the salt is derived from `--caller-address`, you must deploy from that same caller
-  for the address to reproduce.
-- `--deployer-address` and `--bytecode-hash` default to the 1inch deployer setup;
-  override them if you use a different CREATE3 factory.
-
 ## Credits
 
-Fork of ERADICATE2 by Johan Gustafsson. Maintained at
-[1inch/ERADICATE3](https://github.com/1inch/ERADICATE3).
+Fork of ERADICATE2 by Johan Gustafsson. Maintained at [1inch/ERADICATE3](https://github.com/1inch/ERADICATE3).
