@@ -1,3 +1,5 @@
+> **Archived.** This repository is no longer maintained. Current versions live in **[1miner](https://github.com/1inch/1miner)**, where active development continues.
+
 # ERADICATE3
 
 ERADICATE3 is a GPU-accelerated (OpenCL) vanity address generator for **CREATE3** deployments. It brute-forces salts until the resulting CREATE3 address matches the pattern you want.
